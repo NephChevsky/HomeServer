@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Renci.SshNet;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using WebAPI.DTO;
 
 namespace WebAPI.Controllers
 {
@@ -45,7 +46,7 @@ namespace WebAPI.Controllers
 		}
 
 		[HttpPost("enable-rdp")]
-		public IActionResult EnableRDP()
+		public async Task<IActionResult> EnableRDPAsync()
 		{
 			try
 			{
@@ -104,6 +105,8 @@ namespace WebAPI.Controllers
 					return StatusCode(500, "SSH connection failed");
 				}
 				sshClient.Disconnect();
+
+				await ToggleLiveBoxRule(true);
 			}
 			catch (Exception ex)
 			{
@@ -111,6 +114,66 @@ namespace WebAPI.Controllers
 				return StatusCode(500, "Enabling RDP failed");
 			}
 			return Ok();
+		}
+
+		private async Task ToggleLiveBoxRule(bool enabled)
+		{
+			HttpClient client = new()
+			{
+				BaseAddress = new Uri($"http://{_configuration["Livebox:Url"]}/ws")
+			};
+			HttpRequestMessage request = new(HttpMethod.Post, "")
+			{
+				Content = JsonContent.Create(new LiveboxRequest("sah.Device.Information", "createContext", new() {
+					{ "applicationName", "webui" },
+					{ "username", _configuration["Livebox:Username"] },
+					{ "password", _configuration["Livebox:Password"] }
+				}))
+			};
+			request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-sah-ws-4-call+json");
+			request.Headers.Add("Authorization", "X-Sah-Login");
+			HttpResponseMessage response = await client.SendAsync(request);
+			string contextId = (await response.Content.ReadFromJsonAsync<LiveboxResponse>()).Data["contextID"].ToString();
+
+			if (enabled)
+			{
+				request = new(HttpMethod.Post, "")
+				{
+					Content = JsonContent.Create(new LiveboxRequest("Firewall", "setPortForwarding", new()
+					{
+						{ "id", "RDP" },
+						{ "internalPort", "3389" },
+						{ "externalPort", _configuration["RdpPort"] },
+						{ "destinationIPAddress", _configuration["IPAddress"] },
+						{ "enable", true },
+						{ "persistent", true },
+						{ "protocol", "6" },
+						{ "description", "RDP" },
+						{ "sourceInterface", "data" },
+						{ "origin", "webui" },
+						{ "destinationMACAddress", "" }
+					}))
+				};
+			}
+			else
+			{
+				request = new(HttpMethod.Post, "")
+				{
+					Content = JsonContent.Create(new LiveboxRequest("Firewall", "deletePortForwarding", new()
+					{
+						{ "id", "webui_RDP" },
+						{ "destinationIPAddress", _configuration["IPAddress"] },
+						{ "origin", "webui" }
+					}))
+				};
+			}
+
+			request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-sah-ws-4-call+json");
+			request.Headers.Add("Authorization", $"X-Sah {contextId}");
+			request.Headers.Add("X-Content", contextId);
+
+			response = await client.SendAsync(request);
+			await response.Content.ReadFromJsonAsync<LiveboxResponse>();
 		}
 	}
 }
