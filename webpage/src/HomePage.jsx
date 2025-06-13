@@ -21,7 +21,7 @@ function HomePage() {
 
     const handleWakeUp = async () => {
         try {
-            const API_URL = process.env.REACT_APP_API_URL;
+            const API_URL = import.meta.env.VITE_API_URL;
             const response = await fetch(`${API_URL}/computer/wake`, {
                 method: 'POST',
                 headers: getAuthHeaders(),
@@ -41,7 +41,7 @@ function HomePage() {
 
     const handleRDP = async () => {
         try {
-            const API_URL = process.env.REACT_APP_API_URL;
+            const API_URL = import.meta.env.VITE_API_URL;
             const response = await fetch(`${API_URL}/computer/enable-rdp`, {
                 method: 'POST',
                 headers: getAuthHeaders(),
